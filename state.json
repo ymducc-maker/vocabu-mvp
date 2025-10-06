@@ -1,0 +1,16 @@
+{
+    "repo": "ymducc-maker/vocabu-mvp",
+    "buildLabel": "MVP · Build 3",
+    "branch": "feat/placement-v3",
+    "commit": "CURRENT",
+    "allowedFiles": [
+      "src/features/placement/PlacementStep.tsx",
+      "src/features/placement/PlacementQuizAdapter.tsx"
+    ],
+    "rules": {
+      "touchAppTsx": false,
+      "format": "full-file-replacement-only",
+      "changelog": "CHANGELOG.md"
+    }
+  }
+  
