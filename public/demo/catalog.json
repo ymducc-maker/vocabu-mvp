@@ -1,0 +1,82 @@
+{
+  "travel": {
+    "everyday": {
+      "light": ["demo/travel/everyday_core.csv"],
+      "standard": [
+        "demo/travel/everyday_core.csv",
+        "demo/travel/everyday_plus.csv"
+      ],
+      "intense": [
+        "demo/travel/everyday_core.csv",
+        "demo/travel/everyday_plus.csv",
+        "demo/travel/everyday_pro.csv"
+      ],
+      "targets": { "light": 100, "standard": 150, "intense": 250 }
+    },
+    "academic": {
+      "light": ["demo/travel/academic_core.csv"],
+      "standard": [
+        "demo/travel/academic_core.csv",
+        "demo/travel/academic_plus.csv"
+      ],
+      "intense": [
+        "demo/travel/academic_core.csv",
+        "demo/travel/academic_plus.csv",
+        "demo/travel/academic_pro.csv"
+      ],
+      "targets": { "light": 150, "standard": 200, "intense": 300 }
+    }
+  },
+  "law": {
+    "academic": {
+      "light": ["demo/law/academic_core.csv"],
+      "standard": ["demo/law/academic_core.csv", "demo/law/academic_plus.csv"],
+      "intense": [
+        "demo/law/academic_core.csv",
+        "demo/law/academic_plus.csv",
+        "demo/law/academic_pro.csv"
+      ],
+      "targets": { "light": 200, "standard": 300, "intense": 400 }
+    }
+  },
+  "it": {
+    "everyday": {
+      "light": ["demo/it/everyday_core.csv"],
+      "standard": ["demo/it/everyday_core.csv", "demo/it/everyday_plus.csv"],
+      "intense": [
+        "demo/it/everyday_core.csv",
+        "demo/it/everyday_plus.csv",
+        "demo/it/everyday_pro.csv"
+      ],
+      "targets": { "light": 300, "standard": 400, "intense": 600 }
+    },
+    "academic": {
+      "light": ["demo/it/academic_core.csv"],
+      "standard": ["demo/it/academic_core.csv", "demo/it/academic_plus.csv"],
+      "intense": [
+        "demo/it/academic_core.csv",
+        "demo/it/academic_plus.csv",
+        "demo/it/academic_pro.csv"
+      ],
+      "targets": { "light": 400, "standard": 600, "intense": 800 }
+    }
+  },
+  "60plus": {
+    "simplified": {
+      "themes": [
+        "demo/60plus/themes/health.csv",
+        "demo/60plus/themes/daily.csv",
+        "demo/60plus/themes/family.csv",
+        "demo/60plus/themes/travel_light.csv",
+        "demo/60plus/themes/digital.csv"
+      ],
+      "recommended": [
+        "health.csv",
+        "daily.csv",
+        "family.csv",
+        "travel_light.csv"
+      ],
+      "target": 120
+    }
+  }
+}

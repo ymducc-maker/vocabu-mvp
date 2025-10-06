@@ -1,0 +1,1 @@
+Software engineering principles emphasize code quality, observability, and system throughput. Teams document onboarding and run scheduled retrospectives.

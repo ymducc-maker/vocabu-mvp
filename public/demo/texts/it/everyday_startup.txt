@@ -1,0 +1,1 @@
+Our startup deployed a new app version. I wrote a commit and merged a branch. Then we had onboarding for new teammates and a quick retrospective.
