@@ -1,75 +1,96 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 
-type ContextKey = 'law' | 'travel' | 'it' | 'senior';
+/**
+ * PlacementQuizAdapter — адаптер мини-теста уровня.
+ * Используется в PlacementStep (Build 3): Law / Travel / IT / Senior контексты.
+ * Возвращает результат { level, confidence } в родительский компонент.
+ */
 
-const PlacementQuizAdapter: React.FC<{
-  context: ContextKey;
-  totalQuestions?: number;
-  comfortMode?: boolean;
-  onDone: (r: { score: number; confidence?: number }) => void;
-}> = ({ context, totalQuestions = context === 'senior' ? 10 : 15, onDone }) => {
-  // Простейшая внутренняя викторина без банок вопросов (демо).
-  const [idx, setIdx] = useState(0);
-  const [correct, setCorrect] = useState(0);
+type Question = {
+  id: number;
+  text: string;
+  options: string[];
+  answer: string;
+  weight: number; // сложность 1–3
+};
 
-  const answer = (ok: boolean) => {
-    if (ok) setCorrect((v) => v + 1);
-    const next = idx + 1;
-    if (next >= totalQuestions) {
-      const score = Math.round(
-        ((ok ? correct + 1 : correct) / totalQuestions) * 100
-      );
-      const conf = context === 'senior' ? 0.9 : 0.8;
-      onDone({ score, confidence: conf });
+interface PlacementQuizAdapterProps {
+  contextKey: string;
+  onComplete: (result: { level: string; confidence: number }) => void;
+}
+
+const questionBank: Record<string, Question[]> = {
+  law: [
+    { id: 1, text: "Choose the correct word: The judge ___ the verdict.", options: ["gave", "take", "makes"], answer: "gave", weight: 2 },
+    { id: 2, text: "Translate: 'Court hearing'", options: ["судебное заседание", "слушание музыки", "высший суд"], answer: "судебное заседание", weight: 1 },
+    { id: 3, text: "Which term means 'evidence'?", options: ["доказательство", "наказание", "преступление"], answer: "доказательство", weight: 3 },
+  ],
+  travel: [
+    { id: 1, text: "Choose: I ___ a ticket to Paris.", options: ["buyed", "bought", "buy"], answer: "bought", weight: 1 },
+    { id: 2, text: "Translate: 'boarding pass'", options: ["посадочный талон", "виза", "багаж"], answer: "посадочный талон", weight: 2 },
+    { id: 3, text: "Question: 'currency exchange' means…", options: ["обмен валюты", "таможня", "страховка"], answer: "обмен валюты", weight: 2 },
+  ],
+  it: [
+    { id: 1, text: "Choose: 'frontend' refers to…", options: ["UI", "database", "server"], answer: "UI", weight: 1 },
+    { id: 2, text: "Translate: 'debugging'", options: ["поиск ошибок", "настройка сети", "тестирование пользователей"], answer: "поиск ошибок", weight: 3 },
+    { id: 3, text: "Select: JS is a ___ language.", options: ["compiled", "interpreted", "hardware"], answer: "interpreted", weight: 2 },
+  ],
+  senior: [
+    { id: 1, text: "Translate: 'blood pressure'", options: ["кровяное давление", "пульс", "температура"], answer: "кровяное давление", weight: 1 },
+    { id: 2, text: "Choose: The doctor ___ me a new medicine.", options: ["prescribed", "describe", "writing"], answer: "prescribed", weight: 2 },
+    { id: 3, text: "Translate: 'pharmacy'", options: ["аптека", "больница", "лекарство"], answer: "аптека", weight: 2 },
+  ],
+};
+
+export default function PlacementQuizAdapter({
+  contextKey,
+  onComplete,
+}: PlacementQuizAdapterProps) {
+  const [step, setStep] = useState(0);
+  const [score, setScore] = useState(0);
+  const questions = questionBank[contextKey] || [];
+
+  const handleAnswer = (choice: string) => {
+    const q = questions[step];
+    const isCorrect = q.answer === choice;
+    const delta = isCorrect ? q.weight : 0;
+    setScore((prev) => prev + delta);
+    const next = step + 1;
+
+    if (next < questions.length) {
+      setStep(next);
     } else {
-      setIdx(next);
+      const maxScore = questions.reduce((a, b) => a + b.weight, 0);
+      const ratio = score / maxScore;
+      const level =
+        ratio > 0.8 ? "B2" : ratio > 0.5 ? "B1" : "A2";
+      const confidence = Math.round(ratio * 100);
+      onComplete({ level, confidence });
     }
   };
 
-  const progress = Math.round((idx / totalQuestions) * 100);
+  if (step >= questions.length) {
+    return null;
+  }
+
+  const q = questions[step];
 
   return (
-    <div className="rounded-2xl border p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <div className="text-sm text-gray-600">
-          Вопрос {idx + 1} из {totalQuestions}
-        </div>
-        <div className="text-sm text-gray-600">Прогресс: {progress}%</div>
-      </div>
-      <div className="mb-4 rounded-xl bg-gray-50 p-4">
-        <div className="text-base font-medium">Выберите правильный ответ</div>
-        <div className="mt-2 text-sm text-gray-700">
-          (Демо-вопрос. В реальной сборке вопросы берутся из банка выбранного
-          контекста.)
-        </div>
-      </div>
+    <div className="p-4 rounded-2xl border bg-gray-50">
+      <p className="text-base mb-2">
+        <b>Question {step + 1} / {questions.length}:</b> {q.text}
+      </p>
       <div className="flex flex-col gap-2">
-        <button
-          onClick={() => answer(true)}
-          className="rounded-xl border px-4 py-2 hover:bg-gray-50"
-        >
-          Вариант 1 (верный)
-        </button>
-        <button
-          onClick={() => answer(false)}
-          className="rounded-xl border px-4 py-2 hover:bg-gray-50"
-        >
-          Вариант 2
-        </button>
-        <button
-          onClick={() => answer(false)}
-          className="rounded-xl border px-4 py-2 hover:bg-gray-50"
-        >
-          Вариант 3
-        </button>
-      </div>
-      <div className="mt-4 text-sm text-gray-600">
-        {context === 'senior'
-          ? 'Не спешите, можно подумать спокойно.'
-          : 'Выбирайте вариант и переходите дальше.'}
+        {q.options.map((opt) => (
+          <button
+            key={opt}
+            onClick={() => handleAnswer(opt)}
+            className="rounded-lg border px-3 py-1 text-left hover:bg-blue-50"
+          >
+            {opt}
+          </button>
+        ))}
       </div>
     </div>
   );
-};
-
-export default PlacementQuizAdapter;
+}
