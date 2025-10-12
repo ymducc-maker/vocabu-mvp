@@ -1,5 +1,6 @@
 import React, { Component, ReactNode, useEffect, useState } from "react";
 import PlacementStep from "./features/placement/PlacementStep";
+import { exportVocabu, importVocabu, dump } from "./lib/vocabuState";
 
 /** ─────────────────────────────────────────────────────────────────────
  *  Safe Error Boundary (не читаем error.details без проверки)
@@ -182,11 +183,60 @@ function Shell() {
     </div>
   );
 }
+function DevPanel() {
+  // показываем панель только если в URL есть ?dev=1
+  const isDev =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("dev") === "1";
+  if (!isDev) return null;
+
+  const onExport = () => exportVocabu();
+  const onImport = async () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/json";
+    input.onchange = async () => {
+      const file = (input.files && input.files[0]) || null;
+      if (file) await importVocabu(file);
+    };
+    input.click();
+  };
+  const onPreview = () => console.log("Vocabu dump:", dump());
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        bottom: 16,
+        right: 16,
+        background: "#fff",
+        border: "1px solid #ddd",
+        padding: 8,
+        borderRadius: 8,
+        boxShadow: "0 4px 18px rgba(0,0,0,.15)",
+        zIndex: 9999,
+      }}
+    >
+      <strong>Dev</strong>{" "}
+      <button onClick={onExport} style={{ marginLeft: 8 }}>
+        Export
+      </button>
+      <button onClick={onImport} style={{ marginLeft: 8 }}>
+        Import
+      </button>
+      <button onClick={onPreview} style={{ marginLeft: 8 }}>
+        Preview
+      </button>
+    </div>
+  );
+}
+
 
 export default function App() {
   return (
     <SafeBoundary>
       <Shell />
+     <DevPanel />
     </SafeBoundary>
   );
 }
