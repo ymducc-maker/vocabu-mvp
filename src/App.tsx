@@ -1,234 +1,444 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import PlacementStep from './features/placement/PlacementStep';
+import './App.css';
 
-/**
- * Vocabu — Single-file SPA (Sidebar v2)
- * Шаги: 1) План/Плейсмент  2) Обучение  3) Повторение (SRS)  4) Прогресс
- * Включает: ErrorBoundary, локальное сохранение шага, мягкие гварды от NaN/пустых состояний.
- *
- * ВАЖНО: Этот файл самодостаточен и корректно подключает:
- *  - features/placement/PlacementStep (Новый экран)
- *  - features/learn/ExercisesAdapter
- *  - features/srs/SRSDeckAdapter
- *  - features/placement/ResultsPanel (временный экран Прогресса)
- */
-
-// ===== Types =====
-type Step = 1 | 2 | 3 | 4;
-
-// ===== Versioned localStorage (минимально необходимое) =====
-const LS_KEY = 'vocabu.app.state';
-const APP_STATE_VERSION = 3;
-
-type PersistedAppState = {
-  v: number;
-  step: Step;
-};
-
-function loadState(): PersistedAppState | null {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as PersistedAppState;
-    if (!parsed || typeof parsed.v !== 'number') return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function saveState(next: PersistedAppState) {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(next));
-  } catch {
-    // ignore quota errors
-  }
-}
-
-// ===== Error Boundary =====
+/** ---------- Error Boundary ---------- */
 class AppErrorBoundary extends React.Component<
   { children: React.ReactNode },
-  { hasError: boolean; message?: string }
+  { err: string | null }
 > {
-  constructor(props: { children: React.ReactNode }) {
+  constructor(props: any) {
     super(props);
-    this.state = { hasError: false, message: undefined };
+    this.state = { err: null };
   }
-  static getDerivedStateFromError(err: unknown) {
-    const msg =
-      err instanceof Error
-        ? err.message
-        : typeof err === 'string'
-        ? err
-        : 'Unknown error';
-    return { hasError: true, message: msg };
+  static getDerivedStateFromError(e: any) {
+    return { err: e?.message || String(e) || 'Unknown error' };
   }
-  componentDidCatch(error: unknown) {
-    // здесь можно добавить логирование в аналитику
-    console.error('App crashed:', error);
+  componentDidCatch(e: any) {
+    console.error('App crashed:', e);
   }
   render() {
-    if (this.state.hasError) {
+    if (this.state.err) {
       return (
-        <div className="mx-auto max-w-2xl p-6">
-          <div className="rounded-2xl border p-6 shadow-sm">
-            <h1 className="mb-2 text-2xl font-semibold">Что-то пошло не так</h1>
-            <p className="text-sm text-gray-700">
-              Приложение перехватило ошибку и безопасно остановило экран.
-              Попробуйте обновить страницу. Если ошибка повторяется — сообщите в
-              чат.
-            </p>
-            {this.state.message && (
-              <div className="mt-4 rounded-xl bg-gray-50 p-3 text-sm text-gray-600">
-                Детали: {this.state.message}
-              </div>
-            )}
+        <div className="app">
+          <div className="card">
+            <h3>Ошибка в приложении</h3>
+            <div className="muted">
+              Перехватили ошибку, чтобы не показывать пустой экран.
+            </div>
+            <pre style={{ whiteSpace: 'pre-wrap' }}>{this.state.err}</pre>
+            <div className="buttonsRow" style={{ marginTop: 8 }}>
+              <button
+                className="btn"
+                onClick={() => {
+                  localStorage.clear();
+                  location.reload();
+                }}
+              >
+                Очистить данные и перезагрузить
+              </button>
+            </div>
           </div>
         </div>
       );
     }
-    return this.props.children;
+    return this.props.children as any;
   }
 }
 
-// ===== Screens (подключаем существующие модули) =====
-import PlacementStep from './features/placement/PlacementStep';
-import LearnStep from './features/learn/ExercisesAdapter';
-import ReviewStep from './features/srs/SRSDeckAdapter';
-import ProgressStep from './features/placement/ResultsPanel';
+/** ---------- Типы и ключи ---------- */
+type Plan = {
+  createdAt: number;
+  context: string;
+  style: string;
+  pair: string;
+  horizon: number;
+  recommendation: {
+    perDay: number;
+    perWeek: number;
+    total: number;
+  };
+  todaySet: Array<{
+    id: string;
+    term: string;
+    translation: string;
+    source: string;
+  }>;
+  pool: Array<{
+    id: string;
+    term: string;
+    translation: string;
+    source: string;
+  }>;
+  comfortMode?: boolean;
+};
 
-// ===== App =====
-const App: React.FC = () => {
-  // step: восстановление из localStorage c версионированием
-  const initialStep: Step = useMemo(() => {
-    const persisted = loadState();
-    if (!persisted || persisted.v !== APP_STATE_VERSION) return 1;
-    // гвард на странные значения
-    const s = persisted.step;
-    return s === 1 || s === 2 || s === 3 || s === 4 ? s : 1;
-  }, []);
+type SrsItem = {
+  id: string;
+  term: string;
+  translation: string;
+  reps: number;
+  dueAt: number;
+  lastGrade?: 'Again' | 'Hard' | 'Good' | 'Easy';
+  source?: string;
+};
+type SrsHistoryRow = {
+  id: string;
+  grade: 'Again' | 'Hard' | 'Good' | 'Easy';
+  at: number;
+};
 
-  const [step, setStep] = useState<Step>(initialStep);
+const LS = {
+  PLAN: 'vocabu.plan.v1',
+  SRS_QUEUE: 'vocabu.srsQueue.v1',
+  SRS_HISTORY: 'vocabu.srsHistory.v1',
+  UI_STEP: 'vocabu.ui.step.v1',
+};
 
+const safeParse = <T>(raw: string | null): T | null => {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+};
+const readLS = <T>(k: string): T | null => {
+  try {
+    return safeParse<T>(localStorage.getItem(k));
+  } catch {
+    return null;
+  }
+};
+const writeLS = <T>(k: string, v: T) => {
+  try {
+    localStorage.setItem(k, JSON.stringify(v));
+  } catch {}
+};
+
+type Step = 'placement' | 'learn' | 'review' | 'progress';
+
+/** интервалы SRS */
+const BASE_INTERVALS = {
+  Again: 10 * 60 * 1000,
+  Hard: 24 * 60 * 60 * 1000,
+  Good: 3 * 24 * 60 * 60 * 1000,
+  Easy: 7 * 24 * 60 * 60 * 1000,
+} as const;
+
+const COMFORT_INTERVALS = {
+  Again: 15 * 60 * 1000,
+  Hard: 12 * 60 * 60 * 1000,
+  Good: 2 * 24 * 60 * 60 * 1000,
+  Easy: 5 * 24 * 60 * 60 * 1000,
+} as const;
+
+const now = () => Date.now();
+
+function resetApp() {
+  try {
+    localStorage.removeItem('vocabu.placementResult.v1');
+    localStorage.removeItem('vocabu.placementConfig.v1');
+    localStorage.removeItem('vocabu.plan.v1');
+    localStorage.removeItem('vocabu.srsQueue.v1');
+    localStorage.removeItem('vocabu.srsHistory.v1');
+    localStorage.removeItem('vocabu.ui.step.v1');
+  } catch {}
+  location.reload();
+}
+
+function seedQueueFromPlan(plan: Plan | null, queue: SrsItem[]): SrsItem[] {
+  if (!plan) return queue ?? [];
+  if (queue && queue.length > 0) return queue;
+  return (plan.todaySet ?? []).map((w) => ({
+    id: w.id,
+    term: w.term,
+    translation: w.translation,
+    reps: 0,
+    dueAt: now(),
+    source: w.source,
+  }));
+}
+
+function useLocalStep(): [Step, (s: Step) => void] {
+  const [step, setStep] = useState<Step>(
+    (readLS<Step>(LS.UI_STEP) ?? 'placement') as Step
+  );
+  useEffect(() => writeLS(LS.UI_STEP, step), [step]);
   useEffect(() => {
-    saveState({ v: APP_STATE_VERSION, step });
-  }, [step]);
-
-  // Горячие клавиши для переключения шагов (1–4)
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
-      )
-        return;
-      if (e.key === '1') setStep(1);
-      if (e.key === '2') setStep(2);
-      if (e.key === '3') setStep(3);
-      if (e.key === '4') setStep(4);
+    const handler = (e: Event) => {
+      try {
+        const d = (e as any).detail as { step?: Step };
+        if (d?.step) setStep(d.step);
+      } catch {}
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('vocabu:navigate', handler);
+    return () => window.removeEventListener('vocabu:navigate', handler);
+  }, []);
+  return [step, setStep];
+}
+
+function AppInner() {
+  const [step, setStep] = useLocalStep();
+  const [plan, setPlan] = useState<Plan | null>(() => readLS<Plan>(LS.PLAN));
+  const [queue, setQueue] = useState<SrsItem[]>(() =>
+    seedQueueFromPlan(
+      readLS<Plan>(LS.PLAN),
+      readLS<SrsItem[]>(LS.SRS_QUEUE) ?? []
+    )
+  );
+  const [history, setHistory] = useState<SrsHistoryRow[]>(
+    () => readLS<SrsHistoryRow[]>(LS.SRS_HISTORY) ?? []
+  );
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      const newPlan = readLS<Plan>(LS.PLAN);
+      if (!newPlan) return;
+      setPlan((prev) => {
+        if (JSON.stringify(prev) !== JSON.stringify(newPlan)) {
+          const updatedQueue = seedQueueFromPlan(
+            newPlan,
+            readLS<SrsItem[]>(LS.SRS_QUEUE) ?? []
+          );
+          setQueue(updatedQueue);
+          writeLS(LS.SRS_QUEUE, updatedQueue);
+          return newPlan;
+        }
+        return prev;
+      });
+    }, 800);
+    return () => clearInterval(id);
   }, []);
 
+  useEffect(() => writeLS(LS.SRS_QUEUE, queue), [queue]);
+  useEffect(() => writeLS(LS.SRS_HISTORY, history), [history]);
+
+  const intervals = plan?.comfortMode ? COMFORT_INTERVALS : BASE_INTERVALS;
+
+  const due = useMemo(() => queue.filter((q) => q.dueAt <= now()), [queue]);
+  const progressStats = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    const start = d.getTime();
+    return {
+      todayReviews: history.filter((h) => h.at >= start).length,
+      totalReviews: history.length,
+      dueCount: due.length,
+    };
+  }, [history, due]);
+
+  function grade(item: SrsItem, g: NonNullable<SrsItem['lastGrade']>) {
+    const updated: SrsItem = {
+      ...item,
+      reps: (item.reps ?? 0) + 1,
+      lastGrade: g,
+      dueAt: now() + (intervals as any)[g],
+    };
+    setQueue((prev) => [...prev.filter((x) => x.id !== item.id), updated]);
+    setHistory((prev) => [...prev, { id: item.id, grade: g, at: now() }]);
+  }
+
+  return (
+    <div className="app">
+      <nav className="nav">
+        <button
+          className={`navLink ${step === 'placement' ? 'active' : ''}`}
+          onClick={() => setStep('placement')}
+        >
+          План и Плейсмент
+        </button>
+        <button
+          className={`navLink ${step === 'learn' ? 'active' : ''}`}
+          onClick={() => setStep('learn')}
+        >
+          Обучение
+        </button>
+        <button
+          className={`navLink ${step === 'review' ? 'active' : ''}`}
+          onClick={() => setStep('review')}
+        >
+          Повторение (SRS)
+          {progressStats.dueCount ? ` · ${progressStats.dueCount}` : ''}
+        </button>
+        <button
+          className={`navLink ${step === 'progress' ? 'active' : ''}`}
+          onClick={() => setStep('progress')}
+        >
+          Прогресс
+        </button>
+
+        <div style={{ marginLeft: 'auto' }}>
+          <button
+            className="btn"
+            onClick={resetApp}
+            title="Очистить данные и начать заново"
+          >
+            Сбросить данные
+          </button>
+        </div>
+      </nav>
+
+      {step === 'placement' && (
+        <div className="page">
+          <PlacementStep />
+        </div>
+      )}
+
+      {step === 'learn' && (
+        <div className="page">
+          <div className="card">
+            <h3>Обучение (демо)</h3>
+            <div className="muted">
+              Пройдите «Запоминание»: там интервалы и история.
+            </div>
+            <div className="buttonsRow">
+              <button
+                className="btn btn-secondary"
+                onClick={() => setStep('review')}
+              >
+                Перейти к запоминанию
+              </button>
+              <button className="btn" onClick={() => setStep('placement')}>
+                ← К плану
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {step === 'review' && (
+        <div className="page">
+          <div className="card">
+            <h3>
+              Запоминание (SRS v1)
+              {plan?.comfortMode ? ' · мягкий темп' : ''}
+            </h3>
+            {!plan && (
+              <div className="muted">
+                План отсутствует. Сформируйте его на шаге «План и Плейсмент».
+              </div>
+            )}
+            {plan && due.length === 0 && (
+              <div className="empty">
+                <div>Нет карточек к запоминанию прямо сейчас.</div>
+                <div className="muted">
+                  Интервалы: Again {plan?.comfortMode ? '15 мин' : '10 мин'},
+                  Hard {plan?.comfortMode ? '12 ч' : '1 день'}, Good{' '}
+                  {plan?.comfortMode ? '2 дня' : '3 дня'}, Easy{' '}
+                  {plan?.comfortMode ? '5 дней' : '7 дней'}.
+                </div>
+                <div className="buttonsRow">
+                  <button className="btn" onClick={() => setStep('placement')}>
+                    ← К плану
+                  </button>
+                </div>
+              </div>
+            )}
+            {plan && due.length > 0 && (
+              <SrsSession items={due} onGrade={grade} />
+            )}
+          </div>
+        </div>
+      )}
+
+      {step === 'progress' && (
+        <div className="page">
+          <div className="card">
+            <h3>Прогресс (v1)</h3>
+            <div className="line">
+              <b>Сегодня повторов:</b> {progressStats.todayReviews}
+            </div>
+            <div className="line">
+              <b>Всего повторов:</b> {progressStats.totalReviews}
+            </div>
+            <div className="line">
+              <b>Готово к запоминанию сейчас:</b> {progressStats.dueCount}
+            </div>
+            <div className="buttonsRow">
+              <button
+                className="btn btn-primary"
+                onClick={() => setStep('review')}
+              >
+                Начать запоминание →
+              </button>
+              <button className="btn" onClick={() => setStep('placement')}>
+                ← К плану
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** SRS session */
+const SrsSession: React.FC<{
+  items: SrsItem[];
+  onGrade: (it: SrsItem, g: NonNullable<SrsItem['lastGrade']>) => void;
+}> = ({ items, onGrade }) => {
+  const [index, setIndex] = useState(0);
+  const current = items[index];
+  if (!current) return null;
+  const next = () => {
+    if (index < items.length - 1) setIndex(index + 1);
+  };
+  return (
+    <div className="srs">
+      <div className="srs__counter">
+        Карточка {index + 1} из {items.length}
+      </div>
+      <div className="srs__card">
+        <div className="srs__term">{current.term}</div>
+        <div className="srs__translation">{current.translation}</div>
+      </div>
+      <div className="srs__actions">
+        <button
+          className="btn srs-again"
+          onClick={() => {
+            onGrade(current, 'Again');
+            next();
+          }}
+        >
+          Again
+        </button>
+        <button
+          className="btn srs-hard"
+          onClick={() => {
+            onGrade(current, 'Hard');
+            next();
+          }}
+        >
+          Hard
+        </button>
+        <button
+          className="btn srs-good"
+          onClick={() => {
+            onGrade(current, 'Good');
+            next();
+          }}
+        >
+          Good
+        </button>
+        <button
+          className="btn srs-easy"
+          onClick={() => {
+            onGrade(current, 'Easy');
+            next();
+          }}
+        >
+          Easy
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default function App() {
   return (
     <AppErrorBoundary>
-      <div className="min-h-screen bg-white text-gray-900">
-        {/* Top header (лаконично) */}
-        <header className="border-b">
-          <div className="mx-auto flex max-w-6xl items-center justify-between p-4">
-            <div className="flex items-center gap-2">
-              <Logo />
-              <div className="text-lg font-semibold">Vocabu</div>
-              <div className="ml-2 rounded-full border px-2 py-0.5 text-xs text-gray-600">
-                MVP · Build 3
-              </div>
-            </div>
-            <div className="text-xs text-gray-500">
-              App v{APP_STATE_VERSION} · Local state with guards
-            </div>
-          </div>
-        </header>
-
-        {/* Main */}
-        <div className="mx-auto flex max-w-6xl gap-6 p-4">
-          {/* Sidebar */}
-          <aside className="w-64 shrink-0">
-            <nav className="rounded-2xl border p-3 shadow-sm">
-              <div className="mb-3 text-sm font-medium text-gray-700">
-                Навигация
-              </div>
-              <div className="flex flex-col gap-2">
-                <StepButton active={step === 1} onClick={() => setStep(1)}>
-                  1. План
-                </StepButton>
-                <StepButton active={step === 2} onClick={() => setStep(2)}>
-                  2. Обучение
-                </StepButton>
-                <StepButton active={step === 3} onClick={() => setStep(3)}>
-                  3. Повторение
-                </StepButton>
-                <StepButton active={step === 4} onClick={() => setStep(4)}>
-                  4. Прогресс
-                </StepButton>
-              </div>
-
-              <div className="mt-4 rounded-xl bg-gray-50 p-3 text-xs text-gray-600">
-                Подсказки:
-                <ul className="mt-1 list-disc pl-4">
-                  <li>Переключение по шагам: клавиши 1–4</li>
-                  <li>Ошибки безопасно перехватываются</li>
-                </ul>
-              </div>
-            </nav>
-          </aside>
-
-          {/* Workspace */}
-          <main className="flex-1">
-            <div className="rounded-2xl border p-4 shadow-sm">
-              {step === 1 && <PlacementStep />}
-              {step === 2 && <LearnStep />}
-              {step === 3 && <ReviewStep />}
-              {step === 4 && <ProgressStep />}
-            </div>
-          </main>
-        </div>
-
-        {/* Footer */}
-        <footer className="border-t">
-          <div className="mx-auto max-w-6xl p-4 text-center text-xs text-gray-500">
-            © {new Date().getFullYear()} Vocabu — Contextual Learning & SRS
-          </div>
-        </footer>
-      </div>
+      <AppInner />
     </AppErrorBoundary>
   );
-};
-
-export default App;
-
-// ===== UI helpers =====
-const StepButton: React.FC<{
-  active?: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}> = ({ active, onClick, children }) => {
-  return (
-    <button
-      onClick={onClick}
-      className={[
-        'w-full rounded-xl border px-3 py-2 text-left transition',
-        active
-          ? 'border-blue-500 bg-blue-50 font-semibold'
-          : 'hover:bg-gray-50',
-      ].join(' ')}
-    >
-      {children}
-    </button>
-  );
-};
-
-const Logo: React.FC = () => (
-  <div className="flex h-7 w-7 items-center justify-center rounded-xl border text-xs font-bold">
-    V
-  </div>
-);
+}
