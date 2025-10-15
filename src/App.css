@@ -1,38 +1,42 @@
-/* Базовые отступы страницы */
-.container {
-  max-width: 1040px;
-  margin: 0 auto;
-  padding: 24px 16px;
-}
-
-/* Единый стиль для демо-страниц-заглушек */
-.page {
-  max-width: 800px;
-  margin: 0 auto;
+/* === Базовая разметка приложения === */
+.app {
   padding: 16px;
-}
-
-/* Верхнее меню */
-.topnav {
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(6px);
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.navwrap {
-  max-width: 1040px;
+  max-width: 980px;
   margin: 0 auto;
-  padding: 10px 16px;
+}
+.page {
+  margin-top: 12px;
+}
+.card {
+  border: 1px solid #e4e7ec;
+  border-radius: 16px;
+  padding: 16px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+.line {
+  margin: 6px 0;
+}
+.spacer16 {
+  height: 16px;
+}
+.muted {
+  color: #667085;
+  font-size: 13px;
+}
+.buttonsRow {
   display: flex;
-  flex-wrap: wrap;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
-/* Кнопки-линки */
-.navlink {
+/* === Навигация === */
+.nav {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.navLink {
   display: inline-block;
   padding: 8px 12px;
   border: 1px solid #d1d5db;
@@ -43,11 +47,295 @@
   transition: background 0.15s, color 0.15s, border-color 0.15s;
   font-weight: 500;
 }
-.navlink:hover {
+.navLink:hover {
   background: #f3f4f6;
 }
-.navlink.active {
+.navLink.active {
   background: #2563eb;
   color: #fff;
   border-color: #2563eb;
+}
+
+/* === Кнопки === */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px;
+  border-radius: 12px;
+  border: 1px solid #d0d5dd;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 600;
+}
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: #4f46e5;
+  color: #fff;
+  border-color: #4f46e5;
+}
+.btn-primary:hover {
+  filter: brightness(0.95);
+}
+.btn-secondary {
+  background: #eef2f7;
+}
+
+/* === Поля ввода === */
+.input,
+.textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #d0d5dd;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 14px;
+  background: #fff;
+}
+.textarea {
+  resize: vertical;
+}
+
+/* === SRS блок === */
+.srs {
+  margin-top: 10px;
+}
+.srs__counter {
+  color: #667085;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.srs__card {
+  border: 1px solid #eef2f7;
+  border-radius: 12px;
+  padding: 16px;
+  background: #f9fafb;
+  margin-bottom: 10px;
+}
+.srs__term {
+  font-size: 20px;
+  font-weight: 800;
+}
+.srs__translation {
+  font-size: 14px;
+  color: #334155;
+  margin-top: 4px;
+}
+.srs__actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.srs-again {
+  background: #fee2e2;
+  border-color: #fecaca;
+}
+.srs-hard {
+  background: #fff7ed;
+  border-color: #ffedd5;
+}
+.srs-good {
+  background: #ecfeff;
+  border-color: #cffafe;
+}
+.srs-easy {
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+}
+.empty {
+  padding: 12px;
+  background: #f9fafb;
+  border: 1px dashed #e4e7ec;
+  border-radius: 12px;
+}
+
+/* === Placement (UI) === */
+.placement {
+  padding: 16px 20px;
+}
+.placement__title {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 4px 0 16px;
+}
+.vocabu-section {
+  margin: 20px 0 24px;
+}
+.vocabu-section__title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.label {
+  display: block;
+  font-size: 13px;
+  color: #667085;
+  margin-bottom: 6px;
+}
+.mt16 {
+  margin-top: 16px;
+}
+.chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  border: 1px solid #d0d5dd;
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.15s, border-color 0.15s, color 0.15s,
+    box-shadow 0.15s;
+}
+.chip:hover {
+  background: #f3f4f6;
+}
+.chip--active {
+  background: #eef2ff;
+  border-color: #6366f1;
+  color: #1e1b4b;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2) inset;
+}
+
+/* Подсказки/результат */
+.vocabu-note {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fff8e1;
+  color: #8a6d3b;
+  border: 1px solid #ffe7a0;
+}
+
+/* Результат мини-теста */
+.vocabu-result {
+  border: 1px solid #e4e7ec;
+  border-radius: 16px;
+  padding: 16px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+.vocabu-result__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.badge {
+  background: #ecfdf3;
+  color: #027a48;
+  border: 1px solid #a6f4c5;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.vocabu-result__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 10px 0 4px;
+}
+.vocabu-result__metric {
+  background: #f9fafb;
+  border: 1px solid #eef2f7;
+  border-radius: 12px;
+  padding: 12px;
+}
+.vocabu-result__metric-label {
+  color: #667085;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.vocabu-result__metric-value {
+  font-size: 16px;
+  font-weight: 700;
+}
+.vocabu-result__mistakes {
+  margin-top: 12px;
+}
+.vocabu-result__mistakes-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.vocabu-result__actions {
+  margin-top: 16px;
+}
+
+/* Квиз */
+.quiz {
+  border: 1px solid #e4e7ec;
+  border-radius: 16px;
+  padding: 16px;
+  background: #fff;
+}
+.quiz__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.quiz__progress {
+  height: 6px;
+  background: #f2f4f7;
+  border-radius: 8px;
+  width: 70%;
+  overflow: hidden;
+}
+.quiz__bar {
+  height: 6px;
+  background: #4f46e5;
+  border-radius: 8px;
+}
+.quiz__counter {
+  font-size: 12px;
+  color: #667085;
+}
+.quiz__card {
+  padding: 6px 0;
+}
+.quiz__prompt {
+  margin-bottom: 10px;
+}
+.quiz__prompt-en {
+  font-size: 18px;
+  font-weight: 700;
+}
+.quiz__hint {
+  font-size: 12px;
+  color: #667085;
+  margin-top: 2px;
+  min-height: 16px;
+}
+.quiz__choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+.btn.choice {
+  border-radius: 10px;
+  background: #f9fafb;
+}
+.choice--selected {
+  outline: 2px solid #4f46e5;
+  background: #eef2ff;
+}
+.quiz__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+/* Comfort 60+ — крупнее шрифт в вопросе */
+.quiz__prompt-en--xl {
+  font-size: 22px;
 }
