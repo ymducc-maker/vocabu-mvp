@@ -93,8 +93,17 @@ const LS = {
   SRS_QUEUE: 'vocabu.srsQueue.v1',
   SRS_HISTORY: 'vocabu.srsHistory.v1',
   UI_STEP: 'vocabu.ui.step.v1',
+  PROGRESS: 'vocabu.progress.v1', // <--- новый ключ
 };
 
+type ProgressState = {
+  date: string; // YYYY-MM-DD
+  done: number; // сколько раз засчитано сегодня
+  target: number; // дневная цель
+  countedIds: string[]; // какие карточки уже учтены сегодня
+};
+
+/** ---------- Утилиты ---------- */
 const safeParse = <T>(raw: string | null): T | null => {
   if (!raw) return null;
   try {
@@ -116,9 +125,65 @@ const writeLS = <T>(k: string, v: T) => {
   } catch {}
 };
 
+const todayKey = () => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString().slice(0, 10);
+};
+
+function resetApp() {
+  try {
+    localStorage.removeItem('vocabu.placementResult.v1');
+    localStorage.removeItem('vocabu.placementConfig.v1');
+    localStorage.removeItem('vocabu.plan.v1');
+    localStorage.removeItem('vocabu.srsQueue.v1');
+    localStorage.removeItem('vocabu.srsHistory.v1');
+    localStorage.removeItem('vocabu.ui.step.v1');
+    localStorage.removeItem(LS.PROGRESS);
+  } catch {}
+  location.reload();
+}
+
+/** ---------- Прогресс: стор ---------- */
+const progressStore = {
+  read(): ProgressState {
+    const today = todayKey();
+    const raw = readLS<ProgressState>(LS.PROGRESS);
+    if (!raw || raw.date !== today) {
+      const fresh: ProgressState = {
+        date: today,
+        done: 0,
+        target: 0,
+        countedIds: [],
+      };
+      writeLS(LS.PROGRESS, fresh);
+      return fresh;
+    }
+    return raw;
+  },
+  setTarget(target: number) {
+    const st = this.read();
+    const next = { ...st, target: Math.max(0, Math.floor(target)) || 0 };
+    writeLS(LS.PROGRESS, next);
+    return next;
+  },
+  increment(id: string) {
+    const st = this.read();
+    if (!id) return st;
+    if (st.countedIds.includes(id)) return st; // считаем 1 раз/день на карточку
+    const next: ProgressState = {
+      ...st,
+      done: st.done + 1,
+      countedIds: [...st.countedIds, id],
+    };
+    writeLS(LS.PROGRESS, next);
+    return next;
+  },
+};
+
+/** ---------- SRS интервалы ---------- */
 type Step = 'placement' | 'learn' | 'review' | 'progress';
 
-/** интервалы SRS */
 const BASE_INTERVALS = {
   Again: 10 * 60 * 1000,
   Hard: 24 * 60 * 60 * 1000,
@@ -135,18 +200,7 @@ const COMFORT_INTERVALS = {
 
 const now = () => Date.now();
 
-function resetApp() {
-  try {
-    localStorage.removeItem('vocabu.placementResult.v1');
-    localStorage.removeItem('vocabu.placementConfig.v1');
-    localStorage.removeItem('vocabu.plan.v1');
-    localStorage.removeItem('vocabu.srsQueue.v1');
-    localStorage.removeItem('vocabu.srsHistory.v1');
-    localStorage.removeItem('vocabu.ui.step.v1');
-  } catch {}
-  location.reload();
-}
-
+/** ---------- Вспомогательные функции ---------- */
 function seedQueueFromPlan(plan: Plan | null, queue: SrsItem[]): SrsItem[] {
   if (!plan) return queue ?? [];
   if (queue && queue.length > 0) return queue;
@@ -178,6 +232,7 @@ function useLocalStep(): [Step, (s: Step) => void] {
   return [step, setStep];
 }
 
+/** ---------- App ---------- */
 function AppInner() {
   const [step, setStep] = useLocalStep();
   const [plan, setPlan] = useState<Plan | null>(() => readLS<Plan>(LS.PLAN));
@@ -191,6 +246,12 @@ function AppInner() {
     () => readLS<SrsHistoryRow[]>(LS.SRS_HISTORY) ?? []
   );
 
+  // Прогресс (read + локальный стейт для отрисовки)
+  const [progress, setProgress] = useState<ProgressState>(() =>
+    progressStore.read()
+  );
+
+  // Следим за изменением плана извне и выставляем дневную цель
   useEffect(() => {
     const id = setInterval(() => {
       const newPlan = readLS<Plan>(LS.PLAN);
@@ -203,6 +264,12 @@ function AppInner() {
           );
           setQueue(updatedQueue);
           writeLS(LS.SRS_QUEUE, updatedQueue);
+
+          // целевое число слов на день
+          const target =
+            Number(newPlan?.recommendation?.perDay) ||
+            Number(newPlan?.todaySet?.length || 0);
+          setProgress(progressStore.setTarget(target));
           return newPlan;
         }
         return prev;
@@ -211,8 +278,18 @@ function AppInner() {
     return () => clearInterval(id);
   }, []);
 
+  // синхронизация history и queue с LS
   useEffect(() => writeLS(LS.SRS_QUEUE, queue), [queue]);
   useEffect(() => writeLS(LS.SRS_HISTORY, history), [history]);
+
+  // при первом монтировании, если план уже есть — зафиксируем target
+  useEffect(() => {
+    if (!plan) return;
+    const target =
+      Number(plan?.recommendation?.perDay) ||
+      Number(plan?.todaySet?.length || 0);
+    setProgress(progressStore.setTarget(target));
+  }, [plan?.createdAt]); // пересчёт при регенерации плана
 
   const intervals = plan?.comfortMode ? COMFORT_INTERVALS : BASE_INTERVALS;
 
@@ -228,7 +305,17 @@ function AppInner() {
     };
   }, [history, due]);
 
+  /** Инкремент прогресса дня (однократно на карточку) */
+  const incrementDaily = (id: string) => {
+    const next = progressStore.increment(id);
+    setProgress(next);
+  };
+
   function grade(item: SrsItem, g: NonNullable<SrsItem['lastGrade']>) {
+    // сначала прогресс
+    incrementDaily(item.id);
+
+    // затем логика SRS
     const updated: SrsItem = {
       ...item,
       reps: (item.reps ?? 0) + 1,
@@ -238,6 +325,12 @@ function AppInner() {
     setQueue((prev) => [...prev.filter((x) => x.id !== item.id), updated]);
     setHistory((prev) => [...prev, { id: item.id, grade: g, at: now() }]);
   }
+
+  // вычисляем дневную цель на показ
+  const dailyTarget =
+    progress.target ||
+    Number(plan?.recommendation?.perDay) ||
+    Number(plan?.todaySet?.length || 0);
 
   return (
     <div className="app">
@@ -268,6 +361,10 @@ function AppInner() {
           Прогресс
         </button>
 
+        <div style={{ marginLeft: 16 }} className="muted">
+          Сегодня: <b>{progress.done}</b> / {dailyTarget || 0}
+        </div>
+
         <div style={{ marginLeft: 'auto' }}>
           <button
             className="btn"
@@ -281,6 +378,17 @@ function AppInner() {
 
       {step === 'placement' && (
         <div className="page">
+          {/* Короткая карточка с планом и целями дня */}
+          {plan ? (
+            <div className="card" style={{ marginBottom: 12 }}>
+              <h3>Ваш текущий план</h3>
+              <div className="line">
+                Сегодня по плану: <b>{dailyTarget || 0}</b> слов
+                <span className="muted"> · прогресс: </span>
+                <b>{progress.done}</b>/{dailyTarget || 0}
+              </div>
+            </div>
+          ) : null}
           <PlacementStep />
         </div>
       )}
@@ -347,7 +455,14 @@ function AppInner() {
           <div className="card">
             <h3>Прогресс (v1)</h3>
             <div className="line">
-              <b>Сегодня повторов:</b> {progressStats.todayReviews}
+              <b>Сегодня по плану:</b> {dailyTarget || 0}
+            </div>
+            <div className="line">
+              <b>Выполнено сегодня:</b> {progress.done} / {dailyTarget || 0}
+            </div>
+            <div className="line">
+              <b>Сегодня повторов (всего нажатий):</b>{' '}
+              {progressStats.todayReviews}
             </div>
             <div className="line">
               <b>Всего повторов:</b> {progressStats.totalReviews}
@@ -373,7 +488,7 @@ function AppInner() {
   );
 }
 
-/** SRS session */
+/** ---------- Встроенная SRS-сессия ---------- */
 const SrsSession: React.FC<{
   items: SrsItem[];
   onGrade: (it: SrsItem, g: NonNullable<SrsItem['lastGrade']>) => void;
