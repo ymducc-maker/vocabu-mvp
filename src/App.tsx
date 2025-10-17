@@ -53,11 +53,7 @@ type Plan = {
   style: string;
   pair: string;
   horizon: number;
-  recommendation: {
-    perDay: number;
-    perWeek: number;
-    total: number;
-  };
+  recommendation: { perDay: number; perWeek: number; total: number };
   todaySet: Array<{
     id: string;
     term: string;
@@ -93,12 +89,12 @@ const LS = {
   SRS_QUEUE: 'vocabu.srsQueue.v1',
   SRS_HISTORY: 'vocabu.srsHistory.v1',
   UI_STEP: 'vocabu.ui.step.v1',
-  PROGRESS: 'vocabu.progress.v1', // <--- новый ключ
+  PROGRESS: 'vocabu.progress.v1',
 };
 
 type ProgressState = {
   date: string; // YYYY-MM-DD
-  done: number; // сколько раз засчитано сегодня
+  done: number; // сколько учтено сегодня (1 раз/карточку)
   target: number; // дневная цель
   countedIds: string[]; // какие карточки уже учтены сегодня
 };
@@ -135,10 +131,10 @@ function resetApp() {
   try {
     localStorage.removeItem('vocabu.placementResult.v1');
     localStorage.removeItem('vocabu.placementConfig.v1');
-    localStorage.removeItem('vocabu.plan.v1');
-    localStorage.removeItem('vocabu.srsQueue.v1');
-    localStorage.removeItem('vocabu.srsHistory.v1');
-    localStorage.removeItem('vocabu.ui.step.v1');
+    localStorage.removeItem(LS.PLAN);
+    localStorage.removeItem(LS.SRS_QUEUE);
+    localStorage.removeItem(LS.SRS_HISTORY);
+    localStorage.removeItem(LS.UI_STEP);
     localStorage.removeItem(LS.PROGRESS);
   } catch {}
   location.reload();
@@ -169,8 +165,7 @@ const progressStore = {
   },
   increment(id: string) {
     const st = this.read();
-    if (!id) return st;
-    if (st.countedIds.includes(id)) return st; // считаем 1 раз/день на карточку
+    if (!id || st.countedIds.includes(id)) return st;
     const next: ProgressState = {
       ...st,
       done: st.done + 1,
@@ -181,29 +176,66 @@ const progressStore = {
   },
 };
 
+/** ---------- Экспорт: утилиты ---------- */
+function fileStamp() {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+function downloadText(
+  filename: string,
+  text: string,
+  mime: string,
+  addBOM = false
+) {
+  const content = addBOM ? '\uFEFF' + text : text; // BOM → Excel понимает UTF-8
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+function toCSV(rows: Array<Record<string, any>>, delimiter: ',' | ';' = ';') {
+  if (!rows.length) return '';
+  const headers = Object.keys(rows[0]);
+  const esc = (v: any) => {
+    if (v == null) return '';
+    const s = String(v);
+    const needQuote =
+      s.includes('"') || s.includes('\n') || s.includes(delimiter);
+    return needQuote ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [
+    headers.join(delimiter),
+    ...rows.map((r) => headers.map((h) => esc(r[h])).join(delimiter)),
+  ];
+  return lines.join('\n');
+}
+
 /** ---------- SRS интервалы ---------- */
 type Step = 'placement' | 'learn' | 'review' | 'progress';
-
 const BASE_INTERVALS = {
   Again: 10 * 60 * 1000,
   Hard: 24 * 60 * 60 * 1000,
   Good: 3 * 24 * 60 * 60 * 1000,
   Easy: 7 * 24 * 60 * 60 * 1000,
 } as const;
-
 const COMFORT_INTERVALS = {
   Again: 15 * 60 * 1000,
   Hard: 12 * 60 * 60 * 1000,
   Good: 2 * 24 * 60 * 60 * 1000,
   Easy: 5 * 24 * 60 * 60 * 1000,
 } as const;
-
 const now = () => Date.now();
 
-/** ---------- Вспомогательные функции ---------- */
+/** ---------- Вспомогательные ---------- */
 function seedQueueFromPlan(plan: Plan | null, queue: SrsItem[]): SrsItem[] {
   if (!plan) return queue ?? [];
-  if (queue && queue.length > 0) return queue;
+  if (queue?.length > 0) return queue;
   return (plan.todaySet ?? []).map((w) => ({
     id: w.id,
     term: w.term,
@@ -213,7 +245,6 @@ function seedQueueFromPlan(plan: Plan | null, queue: SrsItem[]): SrsItem[] {
     source: w.source,
   }));
 }
-
 function useLocalStep(): [Step, (s: Step) => void] {
   const [step, setStep] = useState<Step>(
     (readLS<Step>(LS.UI_STEP) ?? 'placement') as Step
@@ -245,13 +276,11 @@ function AppInner() {
   const [history, setHistory] = useState<SrsHistoryRow[]>(
     () => readLS<SrsHistoryRow[]>(LS.SRS_HISTORY) ?? []
   );
-
-  // Прогресс (read + локальный стейт для отрисовки)
   const [progress, setProgress] = useState<ProgressState>(() =>
     progressStore.read()
   );
 
-  // Следим за изменением плана извне и выставляем дневную цель
+  // Следим за внешними изменениями плана + ставим дневную цель
   useEffect(() => {
     const id = setInterval(() => {
       const newPlan = readLS<Plan>(LS.PLAN);
@@ -264,8 +293,6 @@ function AppInner() {
           );
           setQueue(updatedQueue);
           writeLS(LS.SRS_QUEUE, updatedQueue);
-
-          // целевое число слов на день
           const target =
             Number(newPlan?.recommendation?.perDay) ||
             Number(newPlan?.todaySet?.length || 0);
@@ -278,21 +305,18 @@ function AppInner() {
     return () => clearInterval(id);
   }, []);
 
-  // синхронизация history и queue с LS
   useEffect(() => writeLS(LS.SRS_QUEUE, queue), [queue]);
   useEffect(() => writeLS(LS.SRS_HISTORY, history), [history]);
 
-  // при первом монтировании, если план уже есть — зафиксируем target
   useEffect(() => {
     if (!plan) return;
     const target =
       Number(plan?.recommendation?.perDay) ||
       Number(plan?.todaySet?.length || 0);
     setProgress(progressStore.setTarget(target));
-  }, [plan?.createdAt]); // пересчёт при регенерации плана
+  }, [plan?.createdAt]);
 
   const intervals = plan?.comfortMode ? COMFORT_INTERVALS : BASE_INTERVALS;
-
   const due = useMemo(() => queue.filter((q) => q.dueAt <= now()), [queue]);
   const progressStats = useMemo(() => {
     const d = new Date();
@@ -305,17 +329,12 @@ function AppInner() {
     };
   }, [history, due]);
 
-  /** Инкремент прогресса дня (однократно на карточку) */
-  const incrementDaily = (id: string) => {
-    const next = progressStore.increment(id);
-    setProgress(next);
-  };
+  /** Инкремент прогресса дня */
+  const incrementDaily = (id: string) =>
+    setProgress(progressStore.increment(id));
 
   function grade(item: SrsItem, g: NonNullable<SrsItem['lastGrade']>) {
-    // сначала прогресс
     incrementDaily(item.id);
-
-    // затем логика SRS
     const updated: SrsItem = {
       ...item,
       reps: (item.reps ?? 0) + 1,
@@ -326,11 +345,74 @@ function AppInner() {
     setHistory((prev) => [...prev, { id: item.id, grade: g, at: now() }]);
   }
 
-  // вычисляем дневную цель на показ
   const dailyTarget =
     progress.target ||
     Number(plan?.recommendation?.perDay) ||
     Number(plan?.todaySet?.length || 0);
+
+  /** ---------- Экспорт ---------- */
+  const buildPlanRows = (p: Plan) => {
+    const rows: Array<Record<string, any>> = [];
+    (p.todaySet ?? []).forEach((w) =>
+      rows.push({
+        id: w.id,
+        term: w.term,
+        translation: w.translation,
+        source: w.source,
+        set: 'today',
+      })
+    );
+    (p.pool ?? []).forEach((w) =>
+      rows.push({
+        id: w.id,
+        term: w.term,
+        translation: w.translation,
+        source: w.source,
+        set: 'pool',
+      })
+    );
+    return rows;
+  };
+  const exportPlanCSV = () => {
+    if (!plan) return;
+    const csv = toCSV(buildPlanRows(plan), ';');
+    const fname = `vocabu_plan_${fileStamp()}.csv`;
+    downloadText(fname, csv, 'text/csv;charset=utf-8;', true); // BOM
+  };
+  const exportResultsCSV = () => {
+    if (!plan) return;
+    const csv = toCSV(buildPlanRows(plan), ';');
+    const fname = `vocabu_results_${fileStamp()}.csv`;
+    downloadText(fname, csv, 'text/csv;charset=utf-8;', true); // BOM
+  };
+  const exportResultsJSON = () => {
+    if (!plan) return;
+    const payload = {
+      version: 'vocabu.export.v1',
+      exportedAt: new Date().toISOString(),
+      progress: {
+        date: progress.date,
+        done: progress.done,
+        target: dailyTarget,
+      },
+      plan: {
+        createdAt: plan.createdAt,
+        context: plan.context,
+        style: plan.style,
+        pair: plan.pair,
+        horizon: plan.horizon,
+        recommendation: plan.recommendation,
+        counts: {
+          today: plan.todaySet?.length || 0,
+          pool: plan.pool?.length || 0,
+        },
+        todaySet: plan.todaySet ?? [],
+        pool: plan.pool ?? [],
+      },
+    };
+    const fname = `vocabu_results_${fileStamp()}.json`;
+    downloadText(fname, JSON.stringify(payload, null, 2), 'application/json');
+  };
 
   return (
     <div className="app">
@@ -378,18 +460,33 @@ function AppInner() {
 
       {step === 'placement' && (
         <div className="page">
-          {/* Короткая карточка с планом и целями дня */}
+          {/* УБРАН верхний инфоблок о плане — остаётся только блок, который рендерит сам PlacementStep ниже */}
+          <PlacementStep />
+
+          {/* Тонкая панель действия ПОД существующей информацией о плане */}
           {plan ? (
-            <div className="card" style={{ marginBottom: 12 }}>
-              <h3>Ваш текущий план</h3>
-              <div className="line">
-                Сегодня по плану: <b>{dailyTarget || 0}</b> слов
-                <span className="muted"> · прогресс: </span>
-                <b>{progress.done}</b>/{dailyTarget || 0}
+            <div
+              style={{
+                marginTop: 12,
+                padding: 12,
+                borderRadius: 10,
+                border: '1px dashed #e0e0e0',
+                background: '#fafafa',
+              }}
+            >
+              <div className="muted" style={{ marginBottom: 6 }}>
+                💾 <b>Сохраните свой план обучения</b>
+                <br />
+                Скачайте список слов, чтобы открыть в Excel или отправить
+                преподавателю. Это опционально.
+              </div>
+              <div className="buttonsRow">
+                <button className="btn btn-secondary" onClick={exportPlanCSV}>
+                  Сохранить мой план в Excel
+                </button>
               </div>
             </div>
           ) : null}
-          <PlacementStep />
         </div>
       )}
 
@@ -419,8 +516,7 @@ function AppInner() {
         <div className="page">
           <div className="card">
             <h3>
-              Запоминание (SRS v1)
-              {plan?.comfortMode ? ' · мягкий темп' : ''}
+              Запоминание (SRS v1){plan?.comfortMode ? ' · мягкий темп' : ''}
             </h3>
             {!plan && (
               <div className="muted">
@@ -470,7 +566,28 @@ function AppInner() {
             <div className="line">
               <b>Готово к запоминанию сейчас:</b> {progressStats.dueCount}
             </div>
-            <div className="buttonsRow">
+
+            <div className="card" style={{ marginTop: 12 }}>
+              <div className="muted" style={{ marginBottom: 6 }}>
+                💾 <b>Сохраните свои результаты</b>
+                <br />
+                Скачайте файл с выученными словами и прогрессом — чтобы не
+                потерять или показать преподавателю. Это опционально.
+              </div>
+              <div className="buttonsRow">
+                <button
+                  className="btn btn-secondary"
+                  onClick={exportResultsCSV}
+                >
+                  Сохранить в Excel
+                </button>
+                <button className="btn" onClick={exportResultsJSON}>
+                  Сохранить копию (для приложений)
+                </button>
+              </div>
+            </div>
+
+            <div className="buttonsRow" style={{ marginTop: 12 }}>
               <button
                 className="btn btn-primary"
                 onClick={() => setStep('review')}
