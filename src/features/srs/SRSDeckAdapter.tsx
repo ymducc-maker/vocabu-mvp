@@ -1,16 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { UILocale } from '../../types';
 
-/** Мини-SM2 для MVP с авто-учётом результатов обучения.
- *  Карточка: { ef, reps, interval, due }
- *  ef ≥ 1.3, quality: 0(Again), 3(Hard), 4(Good), 5(Easy)
+/** Мини-SM2 + учёт дневного прогресса (MVP)
+ *  - quality: 0(Again), 3(Hard), 4(Good), 5(Easy)
+ *  - дневной прогресс хранится в LS ключом 'vocabu.progress.v1'
  */
 
 type CardState = {
-  ef: number; // easiness factor
-  reps: number; // consecutive correct reps (q >= 3)
-  interval: number; // in days
-  due: string; // ISO date (YYYY-MM-DD)
+  ef: number;
+  reps: number;
+  interval: number; // в днях
+  due: string; // YYYY-MM-DD
 };
 
 type SRSMap = Record<string, CardState>;
@@ -18,6 +18,14 @@ type SRSMap = Record<string, CardState>;
 const SRS_KEY = 'vocabu_srs_store_v1';
 const APP_STATE_KEY = 'vocabu_mvp_state';
 const LOG_KEY = 'vocabu_learn_log_v1';
+const PROGRESS_KEY = 'vocabu.progress.v1';
+
+type ProgressState = {
+  date: string; // YYYY-MM-DD
+  done: number; // инкрементируется 1 раз/карточку в день
+  target: number; // дневная цель
+  countedIds: string[]; // какие слова уже учтены сегодня
+};
 
 // ——— Подсказки по контексту (та же идея, что в упражнениях)
 const HINTS: Record<string, Record<string, { ru: string; en: string }>> = {
@@ -87,6 +95,44 @@ function todayISO() {
   d.setHours(0, 0, 0, 0);
   return d.toISOString().slice(0, 10);
 }
+const getProgress = (): ProgressState => {
+  const raw = localStorage.getItem(PROGRESS_KEY);
+  const today = todayISO();
+  try {
+    const parsed = raw ? (JSON.parse(raw) as ProgressState) : null;
+    if (!parsed || parsed.date !== today) {
+      const fresh: ProgressState = {
+        date: today,
+        done: 0,
+        target: 0,
+        countedIds: [],
+      };
+      localStorage.setItem(PROGRESS_KEY, JSON.stringify(fresh));
+      return fresh;
+    }
+    return parsed;
+  } catch {
+    const fresh: ProgressState = {
+      date: today,
+      done: 0,
+      target: 0,
+      countedIds: [],
+    };
+    localStorage.setItem(PROGRESS_KEY, JSON.stringify(fresh));
+    return fresh;
+  }
+};
+const setProgress = (st: ProgressState) =>
+  localStorage.setItem(PROGRESS_KEY, JSON.stringify(st));
+const setProgressTarget = (target: number) => {
+  const st = getProgress();
+  setProgress({ ...st, target: Math.max(0, Math.floor(target)) || 0 });
+};
+const incrementProgressOnce = (id: string) => {
+  const st = getProgress();
+  if (!id || st.countedIds.includes(id)) return;
+  setProgress({ ...st, done: st.done + 1, countedIds: [...st.countedIds, id] });
+};
 
 function addDays(iso: string, days: number) {
   const d = new Date(iso);
@@ -94,14 +140,12 @@ function addDays(iso: string, days: number) {
   d.setHours(0, 0, 0, 0);
   return d.toISOString().slice(0, 10);
 }
-
 function mask(word: string) {
   if (word.length <= 2) return word;
   return `${word[0]}${'•'.repeat(Math.max(1, word.length - 2))}${
     word[word.length - 1]
   }`;
 }
-
 function getPlanFromLocal() {
   try {
     const raw = localStorage.getItem(APP_STATE_KEY);
@@ -112,7 +156,6 @@ function getPlanFromLocal() {
     return null;
   }
 }
-
 function loadSRS(): SRSMap {
   try {
     const raw = localStorage.getItem(SRS_KEY);
@@ -121,13 +164,10 @@ function loadSRS(): SRSMap {
     return {};
   }
 }
-
 function saveSRS(map: SRSMap) {
   localStorage.setItem(SRS_KEY, JSON.stringify(map));
 }
-
 function rateSM2(card: CardState, quality: 0 | 3 | 4 | 5): CardState {
-  // SM-2 адаптированная формула
   let ef = card.ef ?? 2.5;
   let reps = card.reps ?? 0;
   let interval = card.interval ?? 0;
@@ -142,7 +182,7 @@ function rateSM2(card: CardState, quality: 0 | 3 | 4 | 5): CardState {
     reps += 1;
   }
 
-  const q = quality === 0 ? 2 : quality; // защитим формулу
+  const q = quality === 0 ? 2 : quality;
   ef = ef + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02));
   if (ef < 1.3) ef = 1.3;
 
@@ -171,7 +211,6 @@ function applyAutoFromLearnLog(pool: string[], store: SRSMap) {
         !pool.includes(wordLower) &&
         !pool.includes(wordLower.toLowerCase())
       ) {
-        // учитываем только слова из текущего пула
         continue;
       }
       const prev = nextStore[wordLower] ?? {
@@ -189,7 +228,7 @@ function applyAutoFromLearnLog(pool: string[], store: SRSMap) {
 
     if (applied > 0) {
       saveSRS(nextStore);
-      localStorage.removeItem(LOG_KEY); // лог израсходован
+      localStorage.removeItem(LOG_KEY);
     }
     return { applied, today, later, store: nextStore };
   } catch {
@@ -210,10 +249,19 @@ export default function SRSDeckAdapter({
   const plan = useMemo(() => getPlanFromLocal(), []);
   const contextId: string = plan?.contextId ?? 'travel';
 
+  // выставим дневную цель один раз при входе в SRS
+  useEffect(() => {
+    const target =
+      Number(plan?.recommendation?.perDay) ||
+      Number(plan?.todaySet?.length || 0) ||
+      0;
+    setProgressTarget(target);
+  }, []); // eslint-disable-line
+
   // 2) Пул слов (источник для SRS)
   const pool: string[] = useMemo(() => {
     const arr = [...(plan?.todaySet ?? []), ...(plan?.weekPackage ?? [])].map(
-      (w: string) => String(w).toLowerCase()
+      (w: any) => String(typeof w === 'string' ? w : w?.term ?? w).toLowerCase()
     );
     const uniq = Array.from(new Set(arr));
     return uniq.length
@@ -280,6 +328,9 @@ export default function SRSDeckAdapter({
   }, [current, contextId, locale]);
 
   function rate(quality: 0 | 3 | 4 | 5) {
+    // инкремент дневного прогресса (1 раз на слово в день)
+    incrementProgressOnce(current);
+
     const prev = store[current] ?? {
       ef: 2.5,
       reps: 0,
@@ -317,7 +368,6 @@ export default function SRSDeckAdapter({
               );
               saveSRS(s);
               setStore(s);
-              // session пересоберётся через useEffect([store])
             }}
           >
             {t.seed_new}
